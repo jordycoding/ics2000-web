@@ -8,13 +8,21 @@ use axum::{
 use ics2000_rs::{Device, Ics, Room, Scene};
 use serde::{Deserialize, Serialize};
 use std::{
+    fs,
     net::SocketAddr,
+    path::Path as StdPath,
     sync::{Arc, Mutex},
 };
 
 #[derive(Clone)]
 struct AppState {
     ics: Arc<Mutex<Option<Ics>>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Config {
+    email: String,
+    password: String,
 }
 
 #[tokio::main]
@@ -24,6 +32,16 @@ async fn main() {
     let state = AppState {
         ics: Arc::new(Mutex::new(None)),
     };
+    let config_file = StdPath::new("settings.json");
+    let ics_clone = Arc::clone(&state.ics);
+    if config_file.exists() {
+        let config_json =
+            fs::read_to_string("settings.json").expect("Unable to read settings file");
+        match serde_json::from_str::<Config>(&config_json) {
+            Ok(config) => ics_login(config.email, config.password, ics_clone).await,
+            Err(_) => {}
+        };
+    }
     let app = Router::new()
         .route("/login", post(login))
         .route("/devices", get(devices))
@@ -41,15 +59,24 @@ async fn main() {
         .unwrap();
 }
 
-async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> StatusCode {
-    let ics_clone = Arc::clone(&state.ics);
+async fn ics_login(email: String, password: String, ics: Arc<Mutex<Option<Ics>>>) {
+    let email_clone = email.clone();
+    let password_clone = password.clone();
+    let ics_clone = Arc::clone(&ics);
     tokio::task::spawn_blocking(move || {
         let mut ics = ics_clone.lock().expect("Mutex was poisoned");
-        *ics = Some(Ics::new(&payload.email, &payload.password, true));
+        *ics = Some(Ics::new(&email_clone, &password_clone, true));
         ics.as_mut().unwrap().login();
     })
     .await
-    .expect("Something went wrong logging in");
+    .expect("Error logging in");
+    let config = Config { email, password };
+    fs::write("settings.json", serde_json::to_string(&config).unwrap())
+        .expect("Could not save settings file");
+}
+
+async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> StatusCode {
+    ics_login(payload.email, payload.password, state.ics).await;
     StatusCode::OK
 }
 
