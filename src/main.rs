@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use ics2000_rs::{Device, Ics, Room};
+use ics2000_rs::{Device, Ics, Room, Scene};
 use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
@@ -28,6 +28,7 @@ async fn main() {
         .route("/login", post(login))
         .route("/devices", get(devices))
         .route("/rooms", get(rooms))
+        .route("/scenes", get(scenes))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -52,10 +53,13 @@ async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> Sta
 
 async fn devices(
     State(state): State<AppState>,
-) -> Result<(StatusCode, Json<Vec<Device>>), StatusCode> {
+) -> Result<(StatusCode, Json<Vec<Device>>), (StatusCode, String)> {
     let ics_clone = Arc::clone(&state.ics);
     let devices = tokio::task::spawn_blocking(move || {
         let mut ics = ics_clone.lock().unwrap();
+        if ics.is_none() {
+            return Err("Not logged in");
+        }
         ics.as_mut().unwrap().get_devices()
     })
     .await
@@ -63,14 +67,19 @@ async fn devices(
 
     match devices {
         Ok(result) => Ok((StatusCode::OK, Json(result))),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 
-async fn rooms(State(state): State<AppState>) -> Result<(StatusCode, Json<Vec<Room>>), StatusCode> {
+async fn rooms(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Vec<Room>>), (StatusCode, String)> {
     let ics_clone = Arc::clone(&state.ics);
     let rooms = tokio::task::spawn_blocking(move || {
         let mut ics = ics_clone.lock().unwrap();
+        if ics.is_none() {
+            return Err("Not logged in");
+        }
         ics.as_mut().unwrap().get_rooms()
     })
     .await
@@ -78,7 +87,27 @@ async fn rooms(State(state): State<AppState>) -> Result<(StatusCode, Json<Vec<Ro
 
     match rooms {
         Ok(result) => Ok((StatusCode::OK, Json(result))),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
+
+async fn scenes(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Vec<Scene>>), (StatusCode, String)> {
+    let ics_clone = Arc::clone(&state.ics);
+    let scenes = tokio::task::spawn_blocking(move || {
+        let mut ics = ics_clone.lock().unwrap();
+        if ics.is_none() {
+            return Err("Not logged in");
+        }
+        ics.as_mut().unwrap().get_scenes()
+    })
+    .await
+    .expect("Could not fetch scenes");
+
+    match scenes {
+        Ok(result) => Ok((StatusCode::OK, Json(result))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 
