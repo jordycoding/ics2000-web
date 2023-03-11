@@ -17,6 +17,7 @@ use std::{
 #[derive(Clone)]
 struct AppState {
     ics: Arc<Mutex<Option<Ics>>>,
+    logged_in: Arc<Mutex<bool>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,6 +32,7 @@ async fn main() {
 
     let state = AppState {
         ics: Arc::new(Mutex::new(None)),
+        logged_in: Arc::new(Mutex::new(false)),
     };
     let config_file = StdPath::new("settings.json");
     let ics_clone = Arc::clone(&state.ics);
@@ -42,6 +44,8 @@ async fn main() {
                 println!("Found settings file, trying to login");
                 let resp = ics_login(config.email, config.password, ics_clone).await;
                 if resp {
+                    let mut logged_in = state.logged_in.lock().expect("Mutex was poisoned");
+                    *logged_in = true;
                     println!("Logged in succesfully");
                 } else {
                     println!("Failed to log in");
@@ -57,6 +61,7 @@ async fn main() {
         .route("/rooms", get(rooms))
         .route("/scenes", get(scenes))
         .route("/scenes/:scene_id", post(scene_action))
+        .route("/logged_in", get(logged_in))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -86,9 +91,18 @@ async fn ics_login(email: String, password: String, ics: Arc<Mutex<Option<Ics>>>
 
 async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> StatusCode {
     match ics_login(payload.email, payload.password, state.ics).await {
-        true => StatusCode::OK,
+        true => {
+            let mut logged_in = state.logged_in.lock().expect("Mutex was poisoned");
+            *logged_in = true;
+            StatusCode::OK
+        }
         false => StatusCode::FORBIDDEN,
     }
+}
+
+async fn logged_in(State(state): State<AppState>) -> Json<bool> {
+    let logged_in = state.logged_in.lock().expect("Mutex was poisoned");
+    Json(*logged_in)
 }
 
 async fn devices(
