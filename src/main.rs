@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use ics2000_rs::{Device, Ics};
+use ics2000_rs::{Device, Ics, Room};
 use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
@@ -27,6 +27,7 @@ async fn main() {
     let app = Router::new()
         .route("/login", post(login))
         .route("/devices", get(devices))
+        .route("/rooms", get(rooms))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -61,6 +62,21 @@ async fn devices(
     .expect("Could not fetch devices");
 
     match devices {
+        Ok(result) => Ok((StatusCode::OK, Json(result))),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn rooms(State(state): State<AppState>) -> Result<(StatusCode, Json<Vec<Room>>), StatusCode> {
+    let ics_clone = Arc::clone(&state.ics);
+    let rooms = tokio::task::spawn_blocking(move || {
+        let mut ics = ics_clone.lock().unwrap();
+        ics.as_mut().unwrap().get_rooms()
+    })
+    .await
+    .expect("Could not fetch rooms");
+
+    match rooms {
         Ok(result) => Ok((StatusCode::OK, Json(result))),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
