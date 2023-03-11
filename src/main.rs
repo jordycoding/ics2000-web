@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use ics2000_rs::Ics;
+use ics2000_rs::{Device, Ics};
 use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
@@ -24,7 +24,10 @@ async fn main() {
     let state = AppState {
         ics: Arc::new(Mutex::new(None)),
     };
-    let app = Router::new().route("/login", post(login)).with_state(state);
+    let app = Router::new()
+        .route("/login", post(login))
+        .route("/devices", get(devices))
+        .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     tracing::debug!("listening on {}", addr);
@@ -44,6 +47,23 @@ async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> Sta
     .await
     .expect("Something went wrong logging in");
     StatusCode::OK
+}
+
+async fn devices(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<Vec<Device>>), StatusCode> {
+    let ics_clone = Arc::clone(&state.ics);
+    let devices = tokio::task::spawn_blocking(move || {
+        let mut ics = ics_clone.lock().unwrap();
+        ics.as_mut().unwrap().get_devices()
+    })
+    .await
+    .expect("Could not fetch devices");
+
+    match devices {
+        Ok(result) => Ok((StatusCode::OK, Json(result))),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 #[derive(Deserialize)]
