@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -27,6 +27,7 @@ async fn main() {
     let app = Router::new()
         .route("/login", post(login))
         .route("/devices", get(devices))
+        .route("/devices/:device_id", post(device_action))
         .route("/rooms", get(rooms))
         .route("/scenes", get(scenes))
         .with_state(state);
@@ -111,8 +112,44 @@ async fn scenes(
     }
 }
 
+async fn device_action(
+    State(state): State<AppState>,
+    Path(device_id): Path<usize>,
+    Json(payload): Json<DeviceAction>,
+) -> StatusCode {
+    let ics_clone = Arc::clone(&state.ics);
+    tokio::task::spawn_blocking(move || {
+        let mut ics = ics_clone.lock().unwrap();
+        match payload.state {
+            DeviceState::On => ics.as_mut().unwrap().turn_on(device_id),
+            DeviceState::Off => ics.as_mut().unwrap().turn_off(device_id),
+            DeviceState::Dim(value) => ics.as_mut().unwrap().dim(device_id, value),
+        }
+    })
+    .await
+    .expect("Could not turn off device");
+
+    StatusCode::OK
+}
 #[derive(Deserialize)]
 struct Login {
     email: String,
     password: String,
+}
+
+#[derive(Deserialize)]
+struct DeviceAction {
+    state: DeviceState,
+}
+
+#[derive(Deserialize)]
+enum DeviceState {
+    Off,
+    On,
+    Dim(usize),
+}
+
+#[derive(Deserialize)]
+struct SceneAction {
+    scene_id: usize,
 }
