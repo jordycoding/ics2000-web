@@ -39,7 +39,13 @@ async fn main() {
             fs::read_to_string("settings.json").expect("Unable to read settings file");
         match serde_json::from_str::<Config>(&config_json) {
             Ok(config) => {
-                ics_login(config.email, config.password, ics_clone).await;
+                println!("Found settings file, trying to login");
+                let resp = ics_login(config.email, config.password, ics_clone).await;
+                if resp {
+                    println!("Logged in succesfully");
+                } else {
+                    println!("Failed to log in");
+                }
             }
             Err(_) => {}
         };
