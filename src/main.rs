@@ -38,7 +38,9 @@ async fn main() {
         let config_json =
             fs::read_to_string("settings.json").expect("Unable to read settings file");
         match serde_json::from_str::<Config>(&config_json) {
-            Ok(config) => ics_login(config.email, config.password, ics_clone).await,
+            Ok(config) => {
+                ics_login(config.email, config.password, ics_clone).await;
+            }
             Err(_) => {}
         };
     }
@@ -59,25 +61,28 @@ async fn main() {
         .unwrap();
 }
 
-async fn ics_login(email: String, password: String, ics: Arc<Mutex<Option<Ics>>>) {
+async fn ics_login(email: String, password: String, ics: Arc<Mutex<Option<Ics>>>) -> bool {
     let email_clone = email.clone();
     let password_clone = password.clone();
     let ics_clone = Arc::clone(&ics);
-    tokio::task::spawn_blocking(move || {
+    let resp = tokio::task::spawn_blocking(move || {
         let mut ics = ics_clone.lock().expect("Mutex was poisoned");
         *ics = Some(Ics::new(&email_clone, &password_clone, true));
-        ics.as_mut().unwrap().login();
+        ics.as_mut().unwrap().login()
     })
     .await
     .expect("Error logging in");
     let config = Config { email, password };
     fs::write("settings.json", serde_json::to_string(&config).unwrap())
         .expect("Could not save settings file");
+    resp
 }
 
 async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> StatusCode {
-    ics_login(payload.email, payload.password, state.ics).await;
-    StatusCode::OK
+    match ics_login(payload.email, payload.password, state.ics).await {
+        true => StatusCode::OK,
+        false => StatusCode::FORBIDDEN,
+    }
 }
 
 async fn devices(
