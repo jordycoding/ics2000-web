@@ -30,6 +30,7 @@ async fn main() {
         .route("/devices/:device_id", post(device_action))
         .route("/rooms", get(rooms))
         .route("/scenes", get(scenes))
+        .route("/scenes/:scene_id", post(scene_action))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -127,7 +128,26 @@ async fn device_action(
         }
     })
     .await
-    .expect("Could not turn off device");
+    .expect("Ics error");
+
+    StatusCode::OK
+}
+
+async fn scene_action(
+    State(state): State<AppState>,
+    Path(scene_id): Path<usize>,
+    Json(payload): Json<SceneAction>,
+) -> StatusCode {
+    let ics_clone = Arc::clone(&state.ics);
+    tokio::task::spawn_blocking(move || {
+        let mut ics = ics_clone.lock().unwrap();
+        match payload.state {
+            SceneState::Play => ics.as_mut().unwrap().start_scene(scene_id),
+            SceneState::Stop => ics.as_mut().unwrap().stop_scene(scene_id),
+        }
+    })
+    .await
+    .expect("Ics error");
 
     StatusCode::OK
 }
@@ -151,5 +171,11 @@ enum DeviceState {
 
 #[derive(Deserialize)]
 struct SceneAction {
-    scene_id: usize,
+    state: SceneState,
+}
+
+#[derive(Deserialize)]
+enum SceneState {
+    Play,
+    Stop,
 }
